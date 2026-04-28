@@ -148,60 +148,115 @@ class StorageManager {
 
 // ========== ENCRYPTION MANAGER ==========
 /**
- * Handle file encryption and decryption using CryptoJS
+ * Handle file encryption and decryption using Web Crypto API (native)
  */
 class EncryptionManager {
     /**
-     * Generate encryption key from password
-     * @param {string} password - User password
+     * Convert string to bytes
      */
-    static generateKey(password) {
-        return CryptoJS.SHA256(password).toString();
+    static stringToBytes(str) {
+        const encoder = new TextEncoder();
+        return encoder.encode(str);
     }
 
     /**
-     * Encrypt data
-     * @param {string} data - Data to encrypt
-     * @param {string} key - Encryption key
+     * Convert bytes to hex string
      */
-    static encrypt(data, key) {
-        return CryptoJS.AES.encrypt(data, key).toString();
+    static bytesToHex(bytes) {
+        return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
     }
 
     /**
-     * Decrypt data
-     * @param {string} encryptedData - Encrypted data
-     * @param {string} key - Decryption key
+     * Convert hex string to bytes
      */
-    static decrypt(encryptedData, key) {
-        const bytes = CryptoJS.AES.decrypt(encryptedData, key);
-        return bytes.toString(CryptoJS.enc.Utf8);
+    static hexToBytes(hex) {
+        return new Uint8Array(hex.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
     }
 
     /**
-     * Encrypt binary data (file chunks)
+     * Generate encryption key from password using PBKDF2
+     * @param {string} password - User password/email
+     */
+    static async generateKey(password) {
+        const passwordBytes = this.stringToBytes(password);
+        const salt = this.stringToBytes('CloudStorageSalt2024');
+        
+        const baseKey = await crypto.subtle.importKey(
+            'raw',
+            passwordBytes,
+            'PBKDF2',
+            false,
+            ['deriveBits']
+        );
+
+        const derivedBits = await crypto.subtle.deriveBits(
+            {
+                name: 'PBKDF2',
+                salt: salt,
+                iterations: 100000,
+                hash: 'SHA-256'
+            },
+            baseKey,
+            256
+        );
+
+        return await crypto.subtle.importKey(
+            'raw',
+            derivedBits,
+            'AES-GCM',
+            false,
+            ['encrypt', 'decrypt']
+        );
+    }
+
+    /**
+     * Encrypt binary data (file chunks) using AES-GCM
      * @param {ArrayBuffer} arrayBuffer - Binary data
-     * @param {string} key - Encryption key
+     * @param {CryptoKey} key - Encryption key
      */
-    static encryptBinary(arrayBuffer, key) {
-        const binary = String.fromCharCode.apply(null, new Uint8Array(arrayBuffer));
-        return CryptoJS.AES.encrypt(binary, key).toString();
+    static async encryptBinary(arrayBuffer, key) {
+        const iv = crypto.getRandomValues(new Uint8Array(12));
+        const encryptedData = await crypto.subtle.encrypt(
+            { name: 'AES-GCM', iv: iv },
+            key,
+            arrayBuffer
+        );
+
+        // Combine IV + encrypted data
+        const combined = new Uint8Array(iv.length + encryptedData.byteLength);
+        combined.set(iv);
+        combined.set(new Uint8Array(encryptedData), iv.length);
+
+        return this.bytesToHex(combined);
     }
 
     /**
      * Decrypt binary data
-     * @param {string} encryptedData - Encrypted data
-     * @param {string} key - Decryption key
+     * @param {string} hexData - Encrypted hex string (IV + encrypted data)
+     * @param {CryptoKey} key - Decryption key
      */
-    static decryptBinary(encryptedData, key) {
-        const bytes = CryptoJS.AES.decrypt(encryptedData, key);
-        const binary = bytes.toString(CryptoJS.enc.Utf8);
-        const len = binary.length;
-        const array = new Uint8Array(len);
-        for (let i = 0; i < len; i++) {
-            array[i] = binary.charCodeAt(i);
-        }
-        return array.buffer;
+    static async decryptBinary(hexData, key) {
+        const combined = this.hexToBytes(hexData);
+        const iv = combined.slice(0, 12);
+        const encryptedData = combined.slice(12);
+
+        const decryptedData = await crypto.subtle.decrypt(
+            { name: 'AES-GCM', iv: iv },
+            key,
+            encryptedData
+        );
+
+        return decryptedData;
+    }
+
+    /**
+     * Hash password (for login verification)
+     * @param {string} password - Password to hash
+     */
+    static async hashPassword(password) {
+        const bytes = this.stringToBytes(password);
+        const hashBuffer = await crypto.subtle.digest('SHA-256', bytes);
+        return this.bytesToHex(new Uint8Array(hashBuffer));
     }
 }
 
@@ -293,10 +348,12 @@ class AuthManager {
             throw new Error('User already exists');
         }
 
+        const hashedPassword = await EncryptionManager.hashPassword(userData.password);
+
         const user = {
             email: userData.email,
             name: userData.name,
-            password: EncryptionManager.generateKey(userData.password), // Hash password
+            password: hashedPassword,
             createdAt: new Date().toISOString()
         };
 
@@ -315,7 +372,7 @@ class AuthManager {
             throw new Error('User not found');
         }
 
-        const hashedPassword = EncryptionManager.generateKey(password);
+        const hashedPassword = await EncryptionManager.hashPassword(password);
         if (user.password !== hashedPassword) {
             throw new Error('Invalid password');
         }
@@ -384,7 +441,7 @@ class FileManager {
      */
     static async uploadFile(file, onProgress = null) {
         const userEmail = localStorage.getItem('userEmail');
-        const encryptionKey = EncryptionManager.generateKey(userEmail);
+        const encryptionKey = await EncryptionManager.generateKey(userEmail);
         const fileId = `${userEmail}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
         try {
@@ -394,12 +451,19 @@ class FileManager {
             });
 
             // Step 2: Encrypt chunks
-            const encryptedChunks = chunks.map(chunk => ({
-                ...chunk,
-                encryptedData: EncryptionManager.encryptBinary(chunk.data, encryptionKey)
-            }));
-
-            if (onProgress) onProgress(40, 'Encrypting chunks...');
+            const encryptedChunks = [];
+            for (let i = 0; i < chunks.length; i++) {
+                const chunk = chunks[i];
+                const encryptedData = await EncryptionManager.encryptBinary(chunk.data, encryptionKey);
+                encryptedChunks.push({
+                    ...chunk,
+                    encryptedData
+                });
+                
+                if (onProgress) {
+                    onProgress(40 + (i / chunks.length) * 10, 'Encrypting chunks...');
+                }
+            }
 
             // Step 3: Distribute chunks across virtual nodes
             const distribution = FileChunkingManager.distributeChunks(chunks);
@@ -473,21 +537,22 @@ class FileManager {
      */
     static async downloadFile(fileId) {
         const userEmail = localStorage.getItem('userEmail');
-        const encryptionKey = EncryptionManager.generateKey(userEmail);
+        const encryptionKey = await EncryptionManager.generateKey(userEmail);
 
         const fileMetadata = await storage.get('files', fileId);
         if (!fileMetadata) {
             throw new Error('File not found');
         }
 
-        // Step 1: Retrieve chunks from storage
+        // Step 1: Retrieve chunks from storage and decrypt
         const chunks = [];
         for (const chunkId of fileMetadata.chunks) {
             const chunkData = await storage.get('chunks', chunkId);
             if (chunkData) {
+                const decryptedData = await EncryptionManager.decryptBinary(chunkData.encryptedData, encryptionKey);
                 chunks.push({
                     index: chunkData.index,
-                    data: EncryptionManager.decryptBinary(chunkData.encryptedData, encryptionKey),
+                    data: decryptedData,
                     size: chunkData.size
                 });
             }
