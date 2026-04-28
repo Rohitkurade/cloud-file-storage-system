@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cloud File Storage System</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="auth-container">
+        <!-- Login Form -->
+        <div class="auth-box" id="loginBox">
+            <div class="auth-header">
+                <h1>☁️ Cloud Storage</h1>
+                <p>Secure File Storage System</p>
+            </div>
+            <form id="loginForm">
+                <div class="form-group">
+                    <label for="loginEmail">Email</label>
+                    <input type="email" id="loginEmail" required placeholder="Enter your email">
+                </div>
+                <div class="form-group">
+                    <label for="loginPassword">Password</label>
+                    <input type="password" id="loginPassword" required placeholder="Enter your password">
+                </div>
+                <button type="submit" class="btn btn-primary">Login</button>
+                <p class="form-toggle">Don't have an account? <a href="#" onclick="toggleAuth()">Sign up</a></p>
+            </form>
+            <div id="loginError" class="error-message"></div>
+        </div>
+
+        <!-- Signup Form -->
+        <div class="auth-box hidden" id="signupBox">
+            <div class="auth-header">
+                <h1>☁️ Cloud Storage</h1>
+                <p>Create Your Account</p>
+            </div>
+            <form id="signupForm">
+                <div class="form-group">
+                    <label for="signupName">Full Name</label>
+                    <input type="text" id="signupName" required placeholder="Enter your name">
+                </div>
+                <div class="form-group">
+                    <label for="signupEmail">Email</label>
+                    <input type="email" id="signupEmail" required placeholder="Enter your email">
+                </div>
+                <div class="form-group">
+                    <label for="signupPassword">Password</label>
+                    <input type="password" id="signupPassword" required placeholder="Create a password">
+                </div>
+                <div class="form-group">
+                    <label for="signupConfirm">Confirm Password</label>
+                    <input type="password" id="signupConfirm" required placeholder="Confirm password">
+                </div>
+                <button type="submit" class="btn btn-primary">Sign Up</button>
+                <p class="form-toggle">Already have an account? <a href="#" onclick="toggleAuth()">Login</a></p>
+            </form>
+            <div id="signupError" class="error-message"></div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.0/crypto-js.min.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
