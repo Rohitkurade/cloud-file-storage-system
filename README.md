@@ -113,10 +113,12 @@ file:///path/to/Cloud%20File%20Storage%20System/index.html
 ## 🔐 Security & Storage
 
 ### Encryption Details
-- **Algorithm**: AES-256 (via CryptoJS)
-- **Key Derivation**: SHA256 hash of user email
+- **Algorithm**: AES-GCM (256-bit, via Web Crypto API)
+- **Key Derivation**: PBKDF2 with SHA-256 (100,000 iterations)
+- **IV**: Random 12-byte IV per chunk
 - **Data**: All chunks encrypted before storage
 - **Storage**: IndexedDB (browser local storage)
+- **Authentication**: Password hashing using SHA-256
 
 ### Storage Details
 - **Chunk Size**: 1MB per chunk
@@ -229,8 +231,19 @@ The application simulates HDFS concepts:
 
 ## 📦 Dependencies
 
-- **CryptoJS** (v4.1.0): AES encryption
-  - Loaded from CDN: `https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.0/crypto-js.min.js`
+**Zero External Dependencies!** 
+
+The application uses only native browser APIs:
+- **Web Crypto API**: Native AES-GCM encryption (built into all modern browsers)
+- **IndexedDB**: Native browser storage
+- **FileReader API**: Native file reading
+- **No CDN required**: Everything runs locally
+
+This makes the app:
+- ✅ Faster (no external requests)
+- ✅ More secure (no third-party libraries)
+- ✅ More reliable (no CDN dependencies)
+- ✅ Fully offline capable
 
 ## ⚠️ Important Notes
 
