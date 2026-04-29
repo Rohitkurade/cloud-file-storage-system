@@ -152,14 +152,6 @@ class StorageManager {
  */
 class EncryptionManager {
     /**
-     * Convert string to bytes
-     */
-    static stringToBytes(str) {
-        const encoder = new TextEncoder();
-        return encoder.encode(str);
-    }
-
-    /**
      * Convert bytes to hex string
      */
     static bytesToHex(bytes) {
@@ -174,79 +166,72 @@ class EncryptionManager {
     }
 
     /**
-     * Generate encryption key from password using PBKDF2
+     * Generate encryption key from password - Simple numeric key
      * @param {string} password - User password/email
      */
-    static async generateKey(password) {
-        const passwordBytes = this.stringToBytes(password);
-        const salt = this.stringToBytes('CloudStorageSalt2024');
-        
-        const baseKey = await crypto.subtle.importKey(
-            'raw',
-            passwordBytes,
-            'PBKDF2',
-            false,
-            ['deriveBits']
-        );
-
-        const derivedBits = await crypto.subtle.deriveBits(
-            {
-                name: 'PBKDF2',
-                salt: salt,
-                iterations: 100000,
-                hash: 'SHA-256'
-            },
-            baseKey,
-            256
-        );
-
-        return await crypto.subtle.importKey(
-            'raw',
-            derivedBits,
-            'AES-GCM',
-            false,
-            ['encrypt', 'decrypt']
-        );
+    static generateKey(password) {
+        // Create a simple numeric key from password
+        return this.simpleHash(password + 'CloudStorageSalt2024');
     }
 
     /**
-     * Encrypt binary data (file chunks) using AES-GCM
+     * Simple hash function for key generation
+     * @param {string} str - String to hash
+     */
+    static simpleHash(str) {
+        let hash = 0;
+        for (let i = 0; i < str.length; i++) {
+            const char = str.charCodeAt(i);
+            hash = ((hash << 5) - hash) + char;
+            hash = hash & hash;
+        }
+        return Math.abs(hash);
+    }
+
+    /**
+     * XOR Encrypt binary data
      * @param {ArrayBuffer} arrayBuffer - Binary data
-     * @param {CryptoKey} key - Encryption key
+     * @param {number} key - Encryption key
      */
-    static async encryptBinary(arrayBuffer, key) {
-        const iv = crypto.getRandomValues(new Uint8Array(12));
-        const encryptedData = await crypto.subtle.encrypt(
-            { name: 'AES-GCM', iv: iv },
-            key,
-            arrayBuffer
-        );
-
-        // Combine IV + encrypted data
-        const combined = new Uint8Array(iv.length + encryptedData.byteLength);
-        combined.set(iv);
-        combined.set(new Uint8Array(encryptedData), iv.length);
-
-        return this.bytesToHex(combined);
+    static encryptBinary(arrayBuffer, key) {
+        const bytes = new Uint8Array(arrayBuffer);
+        const encrypted = new Uint8Array(bytes.length);
+        const keyBytes = this.intToBytes(key);
+        
+        for (let i = 0; i < bytes.length; i++) {
+            encrypted[i] = bytes[i] ^ keyBytes[i % keyBytes.length];
+        }
+        
+        return this.bytesToHex(encrypted);
     }
 
     /**
-     * Decrypt binary data
-     * @param {string} hexData - Encrypted hex string (IV + encrypted data)
-     * @param {CryptoKey} key - Decryption key
+     * Convert integer to bytes
      */
-    static async decryptBinary(hexData, key) {
-        const combined = this.hexToBytes(hexData);
-        const iv = combined.slice(0, 12);
-        const encryptedData = combined.slice(12);
+    static intToBytes(num) {
+        const bytes = new Uint8Array(4);
+        bytes[0] = (num >> 24) & 0xFF;
+        bytes[1] = (num >> 16) & 0xFF;
+        bytes[2] = (num >> 8) & 0xFF;
+        bytes[3] = num & 0xFF;
+        return bytes;
+    }
 
-        const decryptedData = await crypto.subtle.decrypt(
-            { name: 'AES-GCM', iv: iv },
-            key,
-            encryptedData
-        );
-
-        return decryptedData;
+    /**
+     * XOR Decrypt binary data
+     * @param {string} hexData - Encrypted hex string
+     * @param {number} key - Decryption key
+     */
+    static decryptBinary(hexData, key) {
+        const encrypted = this.hexToBytes(hexData);
+        const decrypted = new Uint8Array(encrypted.length);
+        const keyBytes = this.intToBytes(key);
+        
+        for (let i = 0; i < encrypted.length; i++) {
+            decrypted[i] = encrypted[i] ^ keyBytes[i % keyBytes.length];
+        }
+        
+        return decrypted.buffer;
     }
 
     /**
@@ -446,7 +431,7 @@ class FileManager {
      */
     static async uploadFile(file, onProgress = null) {
         const userEmail = localStorage.getItem('userEmail');
-        const encryptionKey = await EncryptionManager.generateKey(userEmail);
+        const encryptionKey = EncryptionManager.generateKey(userEmail);
         const fileId = `${userEmail}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
         try {
@@ -459,7 +444,7 @@ class FileManager {
             const encryptedChunks = [];
             for (let i = 0; i < chunks.length; i++) {
                 const chunk = chunks[i];
-                const encryptedData = await EncryptionManager.encryptBinary(chunk.data, encryptionKey);
+                const encryptedData = EncryptionManager.encryptBinary(chunk.data, encryptionKey);
                 encryptedChunks.push({
                     ...chunk,
                     encryptedData
@@ -542,7 +527,7 @@ class FileManager {
      */
     static async downloadFile(fileId) {
         const userEmail = localStorage.getItem('userEmail');
-        const encryptionKey = await EncryptionManager.generateKey(userEmail);
+        const encryptionKey = EncryptionManager.generateKey(userEmail);
 
         const fileMetadata = await storage.get('files', fileId);
         if (!fileMetadata) {
@@ -554,7 +539,7 @@ class FileManager {
         for (const chunkId of fileMetadata.chunks) {
             const chunkData = await storage.get('chunks', chunkId);
             if (chunkData) {
-                const decryptedData = await EncryptionManager.decryptBinary(chunkData.encryptedData, encryptionKey);
+                const decryptedData = EncryptionManager.decryptBinary(chunkData.encryptedData, encryptionKey);
                 chunks.push({
                     index: chunkData.index,
                     data: decryptedData,
