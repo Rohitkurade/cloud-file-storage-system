@@ -250,13 +250,18 @@ class EncryptionManager {
     }
 
     /**
-     * Hash password (for login verification)
+     * Hash password (for login verification) - Simple hash
      * @param {string} password - Password to hash
      */
-    static async hashPassword(password) {
-        const bytes = this.stringToBytes(password);
-        const hashBuffer = await crypto.subtle.digest('SHA-256', bytes);
-        return this.bytesToHex(new Uint8Array(hashBuffer));
+    static hashPassword(password) {
+        // Simple hash function - combine string codes
+        let hash = 0;
+        for (let i = 0; i < password.length; i++) {
+            const char = password.charCodeAt(i);
+            hash = ((hash << 5) - hash) + char;
+            hash = hash & hash; // Convert to 32bit integer
+        }
+        return Math.abs(hash).toString(16);
     }
 }
 
@@ -348,7 +353,7 @@ class AuthManager {
             throw new Error('User already exists');
         }
 
-        const hashedPassword = await EncryptionManager.hashPassword(userData.password);
+        const hashedPassword = EncryptionManager.hashPassword(userData.password);
 
         const user = {
             email: userData.email,
@@ -372,7 +377,7 @@ class AuthManager {
             throw new Error('User not found');
         }
 
-        const hashedPassword = await EncryptionManager.hashPassword(password);
+        const hashedPassword = EncryptionManager.hashPassword(password);
         if (user.password !== hashedPassword) {
             throw new Error('Invalid password');
         }
