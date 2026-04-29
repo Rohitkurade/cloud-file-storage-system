@@ -921,20 +921,35 @@ async function handleFileUpload() {
 
     for (let file of files) {
         try {
+            console.log('Starting upload for file:', file.name, file.size);
             showUploadProgress(true, file.name);
 
             await FileManager.uploadFile(file, (progress, status) => {
                 updateUploadProgress(progress, file.name, status);
             });
 
+            console.log('Upload successful for:', file.name);
             showUploadProgress(false);
             fileInput.value = '';
             
             await UIManager.updateFileList();
             await UIManager.updateStats();
+            
+            // Show success message
+            const errorDiv = document.querySelector('.upload-progress');
+            if (errorDiv) {
+                const successMsg = document.createElement('div');
+                successMsg.style.color = 'green';
+                successMsg.style.padding = '10px';
+                successMsg.textContent = `✓ ${file.name} uploaded successfully!`;
+                errorDiv.appendChild(successMsg);
+                setTimeout(() => successMsg.remove(), 3000);
+            }
         } catch (error) {
             console.error('Upload failed:', error);
-            UIManager.showError('uploadProgress', `Upload failed: ${error.message}`);
+            console.error('Error stack:', error.stack);
+            const errorMsg = error.message || 'Unknown error occurred';
+            UIManager.showError('uploadProgress', `❌ Upload failed: ${errorMsg}`);
             showUploadProgress(false);
         }
     }
